@@ -1,16 +1,13 @@
-module Fundament.Capstone.Compiler.Model
+namespace Fundament.Capstone.Compiler.Model
 
 open Capnp.Schema
 open FSharpPlus
+open Fundament.Capstone.Compiler.Useful
+open System.Runtime.CompilerServices
+open Fundament.Capstone.Compiler
+open SpectreCoff
+open Spectre.Console
 
-let inline private BLOCKED_ON<'T> m : 'T =
-    let message = sprintf "Blocked on: %s" (String.concat "\n" m)
-    raise (System.NotImplementedException(message))
-
-let inline private outOfRange<'T> e : 'T =
-    raise (System.ArgumentOutOfRangeException($"Unknown enum value: %d{(e)}"))
-
-let inline private readList reader readFn = reader |> Seq.map readFn |> List.ofSeq
 
 type Id = uint64
 
@@ -380,40 +377,44 @@ and NodeVariant =
                 annotationReader.TargetsAnnotation
             )
 
-let buildModel (reader: CodeGeneratorRequest.READER) : RoseForest<Node> =
-    // Answers the question "What is the name of the node with this Id"
-    let nameTable =
-        reader.Nodes
-        |> Seq.collect (fun nodeReader -> nodeReader.NestedNodes)
-        |> fold (fun table nnr -> Map.add nnr.Id nnr.Name table) Map.empty
 
-    let nodeTable = reader.Nodes |> Seq.map (fun reader -> reader.Id, reader) |> Map
+[<Extension>]
+type CodeGeneratorRequestExtensions =
+    [<Extension>]
+    static member BuildModel(reader: CodeGeneratorRequest.READER) : RoseForest<Node> =
+        // Answers the question "What is the name of the node with this Id"
+        let nameTable =
+            reader.Nodes
+            |> Seq.collect (fun nodeReader -> nodeReader.NestedNodes)
+            |> fold (fun table nnr -> Map.add nnr.Id nnr.Name table) Map.empty
 
-    let rootNodes =
-        reader.Nodes |> Seq.filter (fun reader -> reader.ScopeId = 0UL) |> List.ofSeq
+        let nodeTable = reader.Nodes |> Seq.map (fun reader -> reader.Id, reader) |> Map
 
-    // Answers the question "What are the children of the node with this Id"
-    let childrenTable =
-        let foldFn table (reader: Capnp.Schema.Node.READER) =
-            let parentId = reader.ScopeId
+        let rootNodes =
+            reader.Nodes |> Seq.filter (fun reader -> reader.ScopeId = 0UL) |> List.ofSeq
 
-            let childrenIds =
-                match Map.tryFind parentId table with
-                | None -> [ reader.Id ]
-                | Some(childrenIds) -> reader.Id :: childrenIds
+        // Answers the question "What are the children of the node with this Id"
+        let childrenTable =
+            let foldFn table (reader: Capnp.Schema.Node.READER) =
+                let parentId = reader.ScopeId
 
-            Map.add parentId childrenIds table
+                let childrenIds =
+                    match Map.tryFind parentId table with
+                    | None -> [ reader.Id ]
+                    | Some(childrenIds) -> reader.Id :: childrenIds
 
-        Seq.fold foldFn Map.empty reader.Nodes
+                Map.add parentId childrenIds table
 
-    // Recursively builds a tree of nodes rooted at the given node reader
-    let rec buildTree (reader: Capnp.Schema.Node.READER) =
-        { Root = Node.Read nameTable reader
-          Children =
-            childrenTable
-            |> Map.tryFind reader.Id
-            |> Option.defaultValue []
-            |> List.map (fun childId -> nodeTable[childId])
-            |> List.map buildTree }
+            Seq.fold foldFn Map.empty reader.Nodes
 
-    rootNodes |> List.map buildTree
+        // Recursively builds a tree of nodes rooted at the given node reader
+        let rec buildTree (reader: Capnp.Schema.Node.READER) =
+            { Root = Node.Read nameTable reader
+              Children =
+                childrenTable
+                |> Map.tryFind reader.Id
+                |> Option.defaultValue []
+                |> List.map (fun childId -> nodeTable[childId])
+                |> List.map buildTree }
+
+        rootNodes |> List.map buildTree

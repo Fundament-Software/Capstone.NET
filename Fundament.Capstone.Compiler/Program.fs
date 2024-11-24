@@ -58,7 +58,7 @@ let model =
     |> Framing.ReadSegments
     |> DeserializerState.CreateRoot
     |> CodeGeneratorRequest.READER.create
-    |> buildModel
+    |> CodeGeneratorRequestExtensions.BuildModel
 
 let displayTree =
     let nodePrint =

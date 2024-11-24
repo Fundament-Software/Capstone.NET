@@ -4,6 +4,7 @@
     <OutputType>Exe</OutputType>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="Useful.fs" />
     <Compile Include="RoseTree.fs" />
     <Compile Include="Model.fs" />
     <Compile Include="Program.fs" />
