@@ -5,6 +5,7 @@ open Capnp
 open Capnp.Schema
 open SpectreCoff
 open Fundament.Capstone.Compiler.Model
+open Fundament.Capstone.Compiler.Model.ModelModule
 open Fundament.Capstone.Compiler
 open Spectre.Console
 
@@ -58,7 +59,7 @@ let model =
     |> Framing.ReadSegments
     |> DeserializerState.CreateRoot
     |> CodeGeneratorRequest.READER.create
-    |> CodeGeneratorRequestExtensions.BuildModel
+    |> BuildModel
 
 let displayTree =
     let nodePrint =
@@ -94,6 +95,6 @@ let displayTree =
         | [] -> node (nodePrint n) []
         | childNodes -> node (nodePrint n) childNodes
 
-    List.map (fun tree -> RoseTree.foldTree folder tree) model
+    List.map (fun tree -> Node.fold folder tree) model
 
 tree (Pumped "Compilation Request") displayTree |> toOutputPayload |> toConsole
