@@ -6,9 +6,7 @@ open Fundament.Capstone.Compiler.Useful
 open System.Runtime.CompilerServices
 open Fundament.Capstone.Compiler
 
-
 type Id = uint64
-type CapnpNodeReader = Capnp.Schema.Node.READER
 
 type ElementSize =
     | Empty = 0
@@ -273,99 +271,143 @@ type Method =
           ResultBrand = Brand.Read reader.ResultBrand
           Annotations = annotations }
 
-type Node =
+type CapnpNodeReader = Capnp.Schema.Node.READER
+type CapnpStructNodeReader = Capnp.Schema.Node.``struct``.READER
+type CapnpEnumNodeReader = Capnp.Schema.Node.``enum``.READER
+type CapnpInterfaceNodeReader = Capnp.Schema.Node.``interface``.READER
+type CapnpConstNodeReader = Capnp.Schema.Node.``const``.READER
+type CapnpAnnotationNodeReader = Capnp.Schema.Node.``annotation``.READER
+
+/// Common data for all node types
+type CommonNodeData =
     { Id: Id
       SymbolName: string option
       DisplayName: string
       DisplayNamePrefixLength: uint32
       Parameters: string list
       IsGeneric: bool
-      Annotations: Annotation list
+      Annotations: Annotation list }
+
+    static member Read nameTable (reader: CapnpNodeReader) =
+        let id = reader.Id
+
+        { Id = id
+          SymbolName = Map.tryFind id nameTable
+          DisplayName = reader.DisplayName
+          DisplayNamePrefixLength = reader.DisplayNamePrefixLength
+          Parameters = readList reader.Parameters (fun reader -> reader.Name)
+          IsGeneric = reader.IsGeneric
+          Annotations = readList reader.Annotations Annotation.Read }
+
+/// Data for the struct variant of the inner Node union in the schema.
+/// Unlikely that you'll be using the type directly, as it's part of <see cref="NodeVariant" />
+type NodeStruct =
+    { DataWordCount: uint16
+      PointerCount: uint16
+      IsGroup: bool
+      DiscriminantCount: uint16
+      DiscriminantOffset: uint32
+      Fields: Field list }
+
+    static member Read(reader: CapnpStructNodeReader) =
+        { DataWordCount = reader.DataWordCount
+          PointerCount = reader.PointerCount
+          IsGroup = reader.IsGroup
+          DiscriminantCount = reader.DiscriminantCount
+          DiscriminantOffset = reader.DiscriminantOffset
+          Fields = readList reader.Fields Field.Read }
+
+
+/// Data for the enum variant of the inner Node union in the schema.
+/// Unlikely that you'll be using the type directly, as it's part of <see cref="NodeVariant" />
+type NodeEnum = Enumerant list
+
+/// Data for the interface variant of the inner Node union in the schema.
+/// Unlikely that you'll be using the type directly, as it's part of <see cref="NodeVariant" />
+type NodeInterface =
+    { Methods: Method list
+      Superclasses: Superclass list }
+
+    static member Read(reader: CapnpInterfaceNodeReader) =
+        { Methods = readList reader.Methods Method.Read
+          Superclasses = readList reader.Superclasses Superclass.Read }
+
+/// Data for the const variant of the inner Node union in the schema.
+/// Unlikely that you'll be using the type directly, as it's part of <see cref="NodeVariant" />
+type NodeConst =
+    { Type: Type
+      Value: Value }
+
+    static member Read(reader: CapnpConstNodeReader) =
+        { Type = Type.Read reader.Type
+          Value = Value.Read reader.Value }
+
+
+/// Data for the annotation variant of the inner Node union in the schema.
+/// Unlikely that you'll be using the type directly, as it's part of <see cref="NodeVariant" />
+type NodeAnnotation =
+    { Type: Type
+      // TODO: Can an annotation target multiple things at once? Or can this be compressed into an enum in the object model?
+      TargetsFile: bool
+      TargetsConst: bool
+      TargetsEnum: bool
+      TargetsEnumerant: bool
+      TargetsStruct: bool
+      TargetsField: bool
+      TargetsUnion: bool
+      TargetsGroup: bool
+      TargetsInterface: bool
+      TargetsMethod: bool
+      TargetsParam: bool
+      TargetsAnnotation: bool }
+
+    static member Read(reader: CapnpAnnotationNodeReader) =
+        { Type = Type.Read reader.Type
+          TargetsFile = reader.TargetsFile
+          TargetsConst = reader.TargetsConst
+          TargetsEnum = reader.TargetsEnum
+          TargetsEnumerant = reader.TargetsEnumerant
+          TargetsStruct = reader.TargetsStruct
+          TargetsField = reader.TargetsField
+          TargetsUnion = reader.TargetsUnion
+          TargetsGroup = reader.TargetsGroup
+          TargetsInterface = reader.TargetsInterface
+          TargetsMethod = reader.TargetsMethod
+          TargetsParam = reader.TargetsParam
+          TargetsAnnotation = reader.TargetsAnnotation }
+
+type NodeVariant =
+    | File
+    | Struct of NodeStruct
+    | Enum of NodeEnum
+    | Interface of NodeInterface
+    | Const of NodeConst
+    | Annotation of NodeAnnotation
+
+    static member Read(reader: CapnpNodeReader) =
+        match reader.which with
+        | Node.WHICH.File -> File
+        | Node.WHICH.Struct -> Struct(NodeStruct.Read reader.Struct)
+        | Node.WHICH.Enum -> Enum(readList reader.Enum.Enumerants Enumerant.Read)
+        | Node.WHICH.Interface -> Interface(NodeInterface.Read reader.Interface)
+        | Node.WHICH.Const -> Const(NodeConst.Read reader.Const)
+        | Node.WHICH.Annotation -> Annotation(NodeAnnotation.Read reader.Annotation)
+        | x -> outOfRange (int32 x)
+
+
+type Node =
+    { Data: CommonNodeData
       Variant: NodeVariant
       Children: Node list }
 
-// Exists so we can pattern match on the variant without having to repeat the reader type names
-and private NodeVariantReader =
-    | File
-    | Struct of Capnp.Schema.Node.``struct``.READER
-    | Enum of Capnp.Schema.Node.``enum``.READER
-    | Interface of Capnp.Schema.Node.``interface``.READER
-    | Const of Capnp.Schema.Node.``const``.READER
-    | Annotation of Capnp.Schema.Node.``annotation``.READER
+    member xs.Id = xs.Data.Id
+    member xs.SymbolName = xs.Data.SymbolName
+    member xs.DisplayName = xs.Data.DisplayName
+    member xs.DisplayNamePrefixLength = xs.Data.DisplayNamePrefixLength
+    member xs.Parameters = xs.Data.Parameters
+    member xs.IsGeneric = xs.Data.IsGeneric
+    member xs.Annotations = xs.Data.Annotations
 
-    static member FromReader(reader: Capnp.Schema.Node.READER) =
-        match reader.which with
-        | Node.WHICH.File -> File
-        | Node.WHICH.Struct -> Struct(reader.Struct)
-        | Node.WHICH.Enum -> Enum(reader.Enum)
-        | Node.WHICH.Interface -> Interface(reader.Interface)
-        | Node.WHICH.Const -> Const(reader.Const)
-        | Node.WHICH.Annotation -> Annotation(reader.Annotation)
-        | x -> outOfRange (int32 x)
-
-and NodeVariant =
-    | File
-    | Struct of
-        DataWordCount: uint16 *
-        PointerCount: uint16 *
-        IsGroup: bool *
-        DiscriminantCount: uint16 *
-        DiscriminantOffset: uint32 *
-        Fields: Field list
-    | Enum of Enumerant list
-    | Interface of Methods: Method list * Superclasses: Superclass list
-    | Const of Type: Type * Value: Value
-    | Annotation of
-        Type: Type *
-        // TODO: Can an annotation target multiple things at once? Or can this be compressed into an enum in the object model?
-        TargetsFile: bool *
-        TargetsConst: bool *
-        TargetsEnum: bool *
-        TargetsEnumerant: bool *
-        TargetsStruct: bool *
-        TargetsField: bool *
-        TargetsUnion: bool *
-        TargetsGroup: bool *
-        TargetsInterface: bool *
-        TargetsMethod: bool *
-        TargetsParam: bool *
-        TargetsAnnotation: bool
-
-    static member Read(reader: Capnp.Schema.Node.READER) =
-        match NodeVariantReader.FromReader reader with
-        | NodeVariantReader.File -> File
-        | NodeVariantReader.Struct(structReader) ->
-            Struct(
-                structReader.DataWordCount,
-                structReader.PointerCount,
-                structReader.IsGroup,
-                structReader.DiscriminantCount,
-                structReader.DiscriminantOffset,
-                []
-            )
-        | NodeVariantReader.Enum(enumReader) -> Enum(readList enumReader.Enumerants Enumerant.Read)
-        | NodeVariantReader.Interface(interfaceReader) ->
-            Interface(
-                readList interfaceReader.Methods Method.Read,
-                readList interfaceReader.Superclasses Superclass.Read
-            )
-        | NodeVariantReader.Const(constReader) -> Const(Type.Read constReader.Type, Value.Read constReader.Value)
-        | NodeVariantReader.Annotation(annotationReader) ->
-            Annotation(
-                Type.Read annotationReader.Type,
-                annotationReader.TargetsFile,
-                annotationReader.TargetsConst,
-                annotationReader.TargetsEnum,
-                annotationReader.TargetsEnumerant,
-                annotationReader.TargetsStruct,
-                annotationReader.TargetsField,
-                annotationReader.TargetsUnion,
-                annotationReader.TargetsGroup,
-                annotationReader.TargetsInterface,
-                annotationReader.TargetsMethod,
-                annotationReader.TargetsParam,
-                annotationReader.TargetsAnnotation
-            )
 
 module Node =
     open Spectre
@@ -381,13 +423,7 @@ module Node =
 
         let readChild = (read nodeReaderTable nameTable childrenTable)
 
-        { Id = id
-          SymbolName = Map.tryFind id nameTable
-          DisplayName = reader.DisplayName
-          DisplayNamePrefixLength = reader.DisplayNamePrefixLength
-          Parameters = readList reader.Parameters (fun reader -> reader.Name)
-          IsGeneric = reader.IsGeneric
-          Annotations = readList reader.Annotations Annotation.Read
+        { Data = CommonNodeData.Read nameTable reader
           Variant = NodeVariant.Read reader
           Children = List.map readChild childNodeReaders }
 
