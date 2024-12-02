@@ -432,33 +432,30 @@ module Node =
         folder node childrenFolds
 
 module ModelModule =
-    let BuildNameTable (reader: CodeGeneratorRequest.READER) =
+    type CodeGenReqReader = CodeGeneratorRequest.READER
+
+    let nameTable (reader: CodeGenReqReader) =
         reader.Nodes
         |> Seq.collect (fun nodeReader -> nodeReader.NestedNodes)
         |> fold (fun table nnr -> Map.add nnr.Id nnr.Name table) Map.empty
 
-    let BuildNodeReaderTable (reader: CodeGeneratorRequest.READER) =
+    let nodeReaderTable (reader: CodeGenReqReader) =
         reader.Nodes |> Seq.map (fun reader -> reader.Id, reader) |> Map
 
-    let BuildChildrenTable (reader: CodeGeneratorRequest.READER) =
-        let foldFn table (reader: Capnp.Schema.Node.READER) =
-            let parentId = reader.ScopeId
+    let rootNodes (reader: CodeGenReqReader) =
+        reader.Nodes |> Seq.filter (fun reader -> reader.ScopeId = 0UL) |> List.ofSeq
 
-            let childrenIds =
-                match Map.tryFind parentId table with
-                | None -> [ reader.Id ]
-                | Some(childrenIds) -> reader.Id :: childrenIds
+    /// Constructs a map of Node Ids to Child Ids
+    let treeEdges (reader: CodeGenReqReader) =
+        reader.Nodes
+        |> Seq.fold (fun matrix reader -> MultiMap.add reader.ScopeId reader.Id matrix) Map.empty
 
-            Map.add parentId childrenIds table
-
-        Seq.fold foldFn Map.empty reader.Nodes
+    let nodeTree (reader: CodeGenReqReader) =
+        RoseTree.fromEdges (treeEdges reader) (rootNodes reader |> List.map (fun n -> n.Id))
 
     let BuildModel (reader: CodeGeneratorRequest.READER) =
-        let nameTable = BuildNameTable reader
-        let nodeReaderTable = BuildNodeReaderTable reader
-        let childrenTable = BuildChildrenTable reader
+        let nameTable = nameTable reader
+        let nodeReaderTable = nodeReaderTable reader
+        let tree = nodeTree reader
 
-        let rootNodes =
-            reader.Nodes |> Seq.filter (fun reader -> reader.ScopeId = 0UL) |> List.ofSeq
-
-        List.map (Node.read nodeReaderTable nameTable childrenTable) rootNodes
+        ()

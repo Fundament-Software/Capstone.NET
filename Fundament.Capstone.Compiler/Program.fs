@@ -61,6 +61,7 @@ let model =
     |> CodeGeneratorRequest.READER.create
     |> BuildModel
 
+(*
 let displayTree =
     let nodePrint =
         function
@@ -98,3 +99,4 @@ let displayTree =
     List.map (fun tree -> Node.fold folder tree) model
 
 tree (Pumped "Compilation Request") displayTree |> toOutputPayload |> toConsole
+*)
