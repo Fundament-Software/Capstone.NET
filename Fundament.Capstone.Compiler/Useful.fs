@@ -17,3 +17,6 @@ module MultiMap =
              | None -> [ value ]
              | Some values -> value :: values)
             map
+
+    let concat a b =
+        Map.fold (fun acc key values -> List.fold (fun acc value -> add key value acc) acc values) a b
