@@ -7,14 +7,15 @@ type RoseTree<'T> = { Root: 'T; Children: RoseForest<'T> }
 and RoseForest<'T> = RoseTree<'T> list
 
 module RoseTree =
+    open Useful
 
     let leaf root = { Root = root; Children = [] }
 
-    let fromEdges (edges: Map<'a, list<'a>>) (rootNodes: 'a list) : RoseForest<'a> =
+    let fromEdges (edges: Map<'a, list<'a>>) (rootNode: 'a) : RoseTree<'a> =
         // Basically a DFS, but on the return step we construct the RoseTree
         // Implemented the DFS imperatively because the optimal implementation is easier to read and write than
         // a tail-recursive DFS.
-        let mutable stack = rootNodes
+        let mutable stack = [ rootNode ]
         let mutable visited = Set.empty
         let mutable acc = Map.empty
 
@@ -42,9 +43,25 @@ module RoseTree =
                 acc <- Map.add stack.Head node acc
                 stack <- stack.Tail
 
-        rootNodes |> List.map (fun root -> Map.find root acc)
+        Map.find rootNode acc
 
     let rec foldTree<'T, 'State> (folder: 'T -> 'State list -> 'State) (tree: RoseTree<'T>) =
+        // TODO: Make this tail-recursive or stack-safe
         match tree with
         | { Root = root; Children = [] } -> folder root []
         | { Root = root; Children = children } -> folder root (List.map (foldTree folder) children)
+
+    /// Gets the edges of the tree, in the form of a map from parent nodes to children nodes.
+    /// This is the inverse of fromEdges
+    let edges tree =
+        let folder root accs =
+            match accs with
+            | [] -> (root, Map.empty)
+            | xs ->
+                let (children, edges) = List.unzip xs
+                let edgesConcat = List.fold MultiMap.concat Map.empty edges
+                let edges = List.fold (fun acc c -> MultiMap.add root c acc) edgesConcat children
+                (root, edges)
+
+        let (_, edges) = foldTree folder tree
+        edges
