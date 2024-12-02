@@ -17,8 +17,12 @@ nuget StyleCop.Analyzers 1.2.0-beta.556 beta
 
 // Test Dependencies
 nuget coverlet.collector
+nuget Expecto ~> 10.0
+nuget Expecto.BenchmarkDotNet
+nuget Expecto.FsCheck
 nuget MartinCostello.Logging.XUnit
 nuget Microsoft.NET.Test.Sdk
 nuget Shouldly ~> 4.2
 nuget xunit
 nuget xunit.runner.visualstudio
+nuget YoloDev.Expecto.TestSdk ~> 0.14.0
